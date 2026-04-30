@@ -1,0 +1,11 @@
+# HELP upf_packets_total UPF packet counters by stage
+# TYPE upf_packets_total counter
+upf_packets_total{stage="rx_total"} 537596
+upf_packets_total{stage="rx_gtpu"} 537342
+upf_packets_total{stage="rx_gpdu"} 537092
+upf_packets_total{stage="hit"} 536842
+upf_packets_total{stage="miss_teid"} 250
+upf_packets_total{stage="miss_pdr"} 0
+upf_packets_total{stage="pass_nongtp"} 250
+upf_packets_total{stage="pass_ctrl"} 250
+upf_packets_total{stage="drop_parse"} 0

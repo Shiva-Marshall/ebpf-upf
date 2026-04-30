@@ -1,0 +1,9 @@
+duration_s          : 10
+target_pps          : 50000
+rules_installed     : 100
+packets_sent_blast  : 63018
+hit_packets_delta   : 63018
+miss_packets_delta  : 0
+parse_drop_delta    : 0
+loss_vs_sent        : 0.0000%
+wall_clock_seconds  : 10.047

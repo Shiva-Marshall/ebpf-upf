@@ -1,0 +1,4 @@
+n_sessions=100  pdr_table_estimate_bytes=81920  teid_session_estimate_bytes=1310720  total_estimate_bytes=1392640  per_session_bytes=13926.4  inserts_failed=0
+n_sessions=1000  pdr_table_estimate_bytes=81920  teid_session_estimate_bytes=1310720  total_estimate_bytes=1392640  per_session_bytes=1392.6  inserts_failed=0
+n_sessions=10000  pdr_table_estimate_bytes=81920  teid_session_estimate_bytes=1310720  total_estimate_bytes=1392640  per_session_bytes=139.3  inserts_failed=5904
+n_sessions=50000  pdr_table_estimate_bytes=81920  teid_session_estimate_bytes=1310720  total_estimate_bytes=1392640  per_session_bytes=27.9  inserts_failed=45904

@@ -1,0 +1,29 @@
+# Build artefacts
+*.o
+*.so
+bpf/vmlinux.h
+test/bench_rule_update
+test/bench_memory
+test/gtpu_blast
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local logs and scratch
+*.log
+*.tmp
+/tmp/
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Result outputs that can be regenerated
+results/zerodowntime_blast.std*
+results/zerodowntime_bench.stdout

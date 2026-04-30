@@ -1,0 +1,7 @@
+N=1  total=0.011 ms  per-rule mean=10.731 us  min=8.570  p50=8.570  p95=8.570  p99=8.570  max=8.570
+N=10  total=0.063 ms  per-rule mean=6.290 us  min=4.279  p50=4.593  p95=6.250  p99=6.250  max=8.970
+N=50  total=0.267 ms  per-rule mean=5.332 us  min=3.906  p50=4.290  p95=5.539  p99=5.634  max=8.280
+N=100  total=0.520 ms  per-rule mean=5.200 us  min=3.523  p50=4.088  p95=5.429  p99=5.692  max=7.128
+N=500  total=2.510 ms  per-rule mean=5.020 us  min=3.454  p50=3.993  p95=4.782  p99=7.337  max=22.859
+N=1000  total=6.026 ms  per-rule mean=6.026 us  min=3.592  p50=5.342  p95=6.347  p99=8.693  max=33.010
+N=2000  total=13.077 ms  per-rule mean=6.539 us  min=3.545  p50=5.337  p95=7.557  p99=14.504  max=149.262
