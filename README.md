@@ -26,7 +26,7 @@ empirical evaluation in §VIII of the paper.
 | `scripts/setup_netns.sh`     | Create isolated netns + veth pair                                           |
 | `scripts/load_xdp.sh`        | Build, load, and pin the BPF program                                        |
 | `scripts/make_plots.py`      | Render Fig. X and Fig. Y from raw CSVs                                      |
-| `scripts/make_plot_contention_v2.py` | Render the contention figure                                        |
+| `scripts/make_plot_contention.py` | Render the contention figure                                        |
 | `results/`                   | Raw per-rule CSVs and aggregated summaries                                  |
 
 ## Build environment
@@ -80,7 +80,7 @@ R=5 bash test/contention_sweep_repeated.sh
 
 # 5. Render figures
 python3 scripts/make_plots.py
-python3 scripts/make_plot_contention_v2.py
+python3 scripts/make_plot_contention.py
 ```
 
 ## Headline empirical results (from the paper)
