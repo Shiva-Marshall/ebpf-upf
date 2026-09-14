@@ -1,0 +1,45 @@
+{
+  "n_rules": 100,
+  "total_ms": 2.355,
+  "per_rule_us_p50": 21.459,
+  "per_rule_us_p95": 23.482,
+  "per_rule_us_p99": 133.745,
+  "per_rule_us_min": 20.574,
+  "per_rule_us_max": 133.745
+}
+{
+  "n_rules": 100,
+  "total_ms": 2.293,
+  "per_rule_us_p50": 21.055,
+  "per_rule_us_p95": 22.441,
+  "per_rule_us_p99": 129.609,
+  "per_rule_us_min": 20.575,
+  "per_rule_us_max": 129.609
+}
+{
+  "n_rules": 100,
+  "total_ms": 2.333,
+  "per_rule_us_p50": 20.906,
+  "per_rule_us_p95": 22.658,
+  "per_rule_us_p99": 117.243,
+  "per_rule_us_min": 20.455,
+  "per_rule_us_max": 117.243
+}
+{
+  "n_rules": 100,
+  "total_ms": 2.272,
+  "per_rule_us_p50": 21.02,
+  "per_rule_us_p95": 22.694,
+  "per_rule_us_p99": 111.594,
+  "per_rule_us_min": 20.603,
+  "per_rule_us_max": 111.594
+}
+{
+  "n_rules": 100,
+  "total_ms": 2.26,
+  "per_rule_us_p50": 20.884,
+  "per_rule_us_p95": 22.069,
+  "per_rule_us_p99": 111.735,
+  "per_rule_us_min": 20.485,
+  "per_rule_us_max": 111.735
+}

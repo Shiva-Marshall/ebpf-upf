@@ -20,8 +20,21 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bpf_syscall import PinnedMapCache
+
 BPFTOOL = f"/usr/lib/linux-tools/{os.uname().release}/bpftool"
 PIN_BASE = "/sys/fs/bpf/upf"
+
+# Hot-path map writes (install_session, modify_tc_bundle, etc.) go through
+# a direct bpf() syscall via ctypes -- see loader/bpf_syscall.py for why:
+# the original subprocess-spawned `sudo bpftool` approach cost ~11-15ms per
+# call, purely from sudo/exec overhead, found while benchmarking against
+# eUPF's REST API on the same hardware (Section: same-testbed eUPF
+# comparison). Bulk reads for /metrics (map_dump, not on the rule-install
+# hot path) continue to use bpftool for convenience.
+_maps = PinnedMapCache(PIN_BASE)
 
 METRIC_NAMES = [
     "rx_total", "rx_gtpu", "rx_gpdu",
@@ -47,27 +60,19 @@ def _bytes_to_hexargs(b):
 
 
 def map_update(name, key_bytes, val_bytes):
-    cmd = ["sudo", BPFTOOL, "map", "update", "pinned", f"{PIN_BASE}/{name}",
-           "key"] + _bytes_to_hexargs(key_bytes) + \
-          ["value"] + _bytes_to_hexargs(val_bytes) + ["any"]
-    run(cmd)
+    _maps.update(name, key_bytes, val_bytes)
 
 
 def map_delete(name, key_bytes):
-    cmd = ["sudo", BPFTOOL, "map", "delete", "pinned", f"{PIN_BASE}/{name}",
-           "key"] + _bytes_to_hexargs(key_bytes)
-    run(cmd, check=False)
+    try:
+        _maps.delete(name, key_bytes)
+    except OSError:
+        pass  # matches the old bpftool `check=False` behaviour: deleting an
+              # already-absent key is not an error for our callers
 
 
 def map_dump(name):
     cmd = ["sudo", BPFTOOL, "-j", "map", "dump", "pinned", f"{PIN_BASE}/{name}"]
-    out = run(cmd).stdout
-    return json.loads(out)
-
-
-def map_lookup(name, key_bytes):
-    cmd = ["sudo", BPFTOOL, "-j", "map", "lookup", "pinned", f"{PIN_BASE}/{name}",
-           "key"] + _bytes_to_hexargs(key_bytes)
     out = run(cmd).stdout
     return json.loads(out)
 
@@ -180,22 +185,23 @@ def modify_tc_bundle(pdr_id, far_id=None, qer_id=None, urr_id=None, precedence=N
     Returns the new generation number, for the caller to correlate against
     what a concurrent-traffic test observes.
     """
-    j = map_lookup("tc_bundle_map", enc_u32(pdr_id))
-    v = j["formatted"]["value"]    # bpftool -j gives raw bytes under "value"; the
-                                    # BTF-parsed struct is under "formatted"
-    active = int(v["active"])
-    cur = v["slot"][active]
+    # struct tc_bundle { u32 active; u32 _pad; struct tc_bundle_slot slot[2]; }
+    # struct tc_bundle_slot { u32 far_id,qer_id,urr_id,precedence,generation,_pad; }
+    raw = _maps.lookup("tc_bundle_map", enc_u32(pdr_id), 4 + 4 + 24 + 24)
+    active, _pad = struct.unpack_from("<II", raw, 0)
+    active &= 1
+    slot_off = 8 + active * 24
+    cur_far_id, cur_qer_id, cur_urr_id, cur_prec, cur_gen, _ = \
+        struct.unpack_from("<IIIIII", raw, slot_off)
     inactive = 1 - active
 
-    new_far_id = far_id if far_id is not None else int(cur["far_id"])
-    new_qer_id = qer_id if qer_id is not None else int(cur["qer_id"])
-    new_urr_id = urr_id if urr_id is not None else int(cur["urr_id"])
-    new_prec   = precedence if precedence is not None else int(cur["precedence"])
-    new_gen    = int(cur["generation"]) + 1
+    new_far_id = far_id if far_id is not None else cur_far_id
+    new_qer_id = qer_id if qer_id is not None else cur_qer_id
+    new_urr_id = urr_id if urr_id is not None else cur_urr_id
+    new_prec   = precedence if precedence is not None else cur_prec
+    new_gen    = cur_gen + 1
 
-    cur_slot_bytes = enc_bundle_slot(int(cur["far_id"]), int(cur["qer_id"]),
-                                      int(cur["urr_id"]), int(cur["precedence"]),
-                                      int(cur["generation"]))
+    cur_slot_bytes = enc_bundle_slot(cur_far_id, cur_qer_id, cur_urr_id, cur_prec, cur_gen)
     new_slot_bytes = enc_bundle_slot(new_far_id, new_qer_id, new_urr_id, new_prec, new_gen)
 
     slots_prep = [None, None]
