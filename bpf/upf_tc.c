@@ -36,12 +36,79 @@
 #define BPF_ADJ_ROOM_MAC_X            1  /* was NET_X=0: adjusts below L3, kept stale outer IP header */
 #define BPF_F_ADJ_ROOM_FIXED_GSO_X    (1ULL << 0)
 
+/* Token-bucket admission check for QER `qer_id` against `pkt_len` bytes.
+ * Returns 1 (admit) or 0 (exceeds configured MBR, caller should drop).
+ * One bucket instance per CPU -- see the qer_bucket_state comment in
+ * upf_maps.h for the accuracy/contention trade-off this implies. */
+static __always_inline int upf_qer_admit(__u32 qer_id, __u32 pkt_len)
+{
+    struct qer_val *qv = bpf_map_lookup_elem(&qer_table, &qer_id);
+    if (!qv || qv->mbr_ul_bps == 0)
+        return 1;    /* no QER configured / unlimited: admit */
+
+    struct qer_bucket_state *st = bpf_map_lookup_elem(&qer_state, &qer_id);
+    if (!st)
+        return 1;    /* qer_id out of range for qer_state: fail open */
+
+    __u64 now = bpf_ktime_get_ns();
+    if (st->last_ns == 0) {
+        /* First-ever use of this bucket: start full so the first burst
+         * up to burst_bytes is never penalised by an artificially empty
+         * bucket. */
+        st->tokens_bytes = qv->burst_bytes;
+        st->last_ns = now;
+    } else {
+        __u64 elapsed = now - st->last_ns;
+        if (elapsed > 1000000000ULL)
+            elapsed = 1000000000ULL;   /* cap refill window; bounds the multiply below and the
+                                         * bucket saturates at burst_bytes well before 1s anyway */
+        __u64 refill = (elapsed * qv->mbr_ul_bps) / 8000000000ULL;  /* bits/sec -> bytes over elapsed */
+        st->tokens_bytes += refill;
+        if (st->tokens_bytes > qv->burst_bytes)
+            st->tokens_bytes = qv->burst_bytes;
+        st->last_ns = now;
+    }
+
+    if (st->tokens_bytes >= pkt_len) {
+        st->tokens_bytes -= pkt_len;
+        return 1;
+    }
+    return 0;
+}
+
+/* Usage accounting for URR `urr_id`. Per-CPU hash: each CPU maintains its
+ * own counters for a given URR id, aggregated by the PFCP agent at
+ * reporting time (Section on observability); no cross-CPU synchronisation
+ * needed on the increment path. */
+static __always_inline void upf_urr_update(__u32 urr_id, __u32 pkt_len)
+{
+    if (urr_id == 0)
+        return;    /* 0 = no URR configured for this PDR */
+
+    struct urr_val *uv = bpf_map_lookup_elem(&urr_counters, &urr_id);
+    if (uv) {
+        uv->bytes_ul += pkt_len;
+        uv->pkts_ul  += 1;
+    } else {
+        struct urr_val init = { .bytes_ul = pkt_len, .pkts_ul = 1 };
+        /* BPF_NOEXIST: if another packet on this CPU already raced us to
+         * create this key between lookup and here, our update is lost --
+         * a rare, one-time bootstrap race affecting at most one packet's
+         * count per (urr_id, CPU) pair, acceptable for this prototype. */
+        bpf_map_update_elem(&urr_counters, &urr_id, &init, BPF_NOEXIST);
+    }
+    bump(M_TC_URR_UPDATED);
+}
+
 /* Strip `outer_hdr_len` bytes of outer IP/UDP/GTP-U header (leaving the
- * Ethernet header and the inner IP packet intact), then redirect out the
+ * Ethernet header and the inner IP packet intact), apply QER policing and
+ * URR accounting to the decapsulated inner packet, then redirect out the
  * FAR's configured egress interface. */
-static __always_inline int upf_far_forward(struct __sk_buff *skb, __u32 far_id,
+static __always_inline int upf_far_forward(struct __sk_buff *skb, struct pdr_val *pdr,
                                             __u32 outer_hdr_len)
 {
+    __u32 far_id = pdr->far_id, qer_id = pdr->qer_id, urr_id = pdr->urr_id;
+
     if (bpf_skb_adjust_room(skb, -(int)outer_hdr_len, BPF_ADJ_ROOM_MAC_X,
                              BPF_F_ADJ_ROOM_FIXED_GSO_X) < 0) {
         bump(M_TC_DECAP_ERR);
@@ -54,6 +121,16 @@ static __always_inline int upf_far_forward(struct __sk_buff *skb, __u32 far_id,
         bump(M_TC_DECAP_ERR);
         return TC_ACT_SHOT_X;
     }
+
+    __u32 pkt_len = skb->len;   /* inner (decapsulated) packet length */
+
+    if (!upf_qer_admit(qer_id, pkt_len)) {
+        bump(M_TC_QER_DROP);
+        return TC_ACT_SHOT_X;
+    }
+    bump(M_TC_QER_PASS);
+
+    upf_urr_update(urr_id, pkt_len);
 
     bump(M_TC_FAR_FORWARD);
     int ret = bpf_redirect(far->out_ifindex, 0);
@@ -131,9 +208,10 @@ int upf_tc_ingress(struct __sk_buff *skb)
         return TC_ACT_OK_X;
     }
 
-    /* FAR_FORWARD: strip the outer IP/UDP/GTP-U header, then redirect. */
+    /* FAR_FORWARD: strip the outer IP/UDP/GTP-U header, apply QER/URR,
+     * then redirect. */
     __u32 outer_hdr_len = ihl_bytes + (__u32)sizeof(struct udphdr) + 8;
-    return upf_far_forward(skb, pdr->far_id, outer_hdr_len);
+    return upf_far_forward(skb, pdr, outer_hdr_len);
 }
 
 char _license[] SEC("license") = "GPL";

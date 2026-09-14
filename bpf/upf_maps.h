@@ -35,7 +35,7 @@ struct pdr_val {
     __u32 far_id;
     __u32 qer_id;
     __u32 precedence;
-    __u32 _pad;
+    __u32 urr_id;         /* 0 = no URR configured for this PDR */
 };
 
 /* FAR apply-action values, per 3GPP TS 29.244 Apply Action IE (Sec 8.2.26). */
@@ -57,6 +57,21 @@ struct qer_val {
     __u64 mbr_dl_bps;    /* downlink Maximum Bit Rate, bits/sec */
     __u32 burst_bytes;   /* token-bucket burst size */
     __u32 _pad;
+};
+
+/* Dynamic per-QER token-bucket state, separate from the static qer_table
+ * configuration above. One instance per CPU (BPF_MAP_TYPE_PERCPU_ARRAY):
+ * each CPU refills and drains its own bucket independently, avoiding any
+ * lock in the forwarding hot path. The direct consequence -- documented in
+ * the paper's Discussion section -- is that a QER whose traffic is spread
+ * across N CPUs (by RSS/multi-queue) can admit up to N times its
+ * configured MBR in aggregate, since each CPU's bucket is refilled against
+ * the *same* mbr_ul_bps independently rather than sharing one global
+ * allowance. A shared, spin-lock-protected bucket (traded contention for
+ * accuracy) is the alternative examined in the QER contention experiment. */
+struct qer_bucket_state {
+    __u64 tokens_bytes;
+    __u64 last_ns;
 };
 
 struct urr_val {
@@ -90,6 +105,9 @@ enum metric_idx {
     M_TC_FAR_BUFFER,
     M_TC_DECAP_ERR,
     M_TC_REDIRECT_ERR,
+    M_TC_QER_PASS,
+    M_TC_QER_DROP,
+    M_TC_URR_UPDATED,
     M_MAX,
 };
 
@@ -122,6 +140,13 @@ struct {
     __type(value, struct qer_val);
     __uint(max_entries, MAX_QERS);
 } qer_table SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key,   __u32);     /* QER id, same key space as qer_table */
+    __type(value, struct qer_bucket_state);
+    __uint(max_entries, MAX_QERS);
+} qer_state SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
