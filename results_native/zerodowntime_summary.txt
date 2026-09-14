@@ -6,4 +6,4 @@ hit_packets_delta   : 499998
 miss_packets_delta  : 0
 parse_drop_delta    : 0
 loss_vs_sent        : 0.0000%
-wall_clock_seconds  : 10.060
+wall_clock_seconds  : 10.069

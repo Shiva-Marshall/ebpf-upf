@@ -11,7 +11,12 @@
 //   sudo ./bench_rule_update <n_rules> [csv_out_path]
 //
 // Output:
-//   - one summary line on stdout with min/p50/p95/p99/max in µs and total ms
+//   - one summary line on stdout: total/mean/min/p50/p95/p99/max are all
+//     derived from the same per-rule samples[] array (total = sum(samples),
+//     mean = total/n), so they reconcile exactly with each other and with
+//     the released per-rule CSV; "wall" is a separate diagnostic -- the
+//     true wall-clock span of the whole loop, which also includes
+//     inter-iteration housekeeping not attributable to any single rule.
 //   - if csv_out_path given, all per-rule samples in µs to that file (one
 //     value per line) so we can plot the histogram for the paper.
 
@@ -111,6 +116,24 @@ int main(int argc, char **argv)
 
     clock_gettime(CLOCK_MONOTONIC, &t_end);
 
+    /* Sum of the per-rule samples: this is what "total"/"mean" below are
+     * derived from, so they reconcile exactly with min/p50/p95/p99/max
+     * (all computed from the same samples[] array) and with sum(update_us)
+     * over the released per-rule CSV. We deliberately do NOT use
+     * (t_end - t_start) for the reported total/mean: that wall-clock span
+     * also includes inter-iteration housekeeping (the second clock_gettime()
+     * call, loop bookkeeping, struct setup for the next iteration) that
+     * never lands inside any individual samples[i], so it previously
+     * inflated "total"/"mean" by ~15-25% relative to the percentiles
+     * computed from the very same samples[] array -- reproducibly visible
+     * even at n=1, where mean cannot legitimately differ from the one
+     * recorded sample. That wall-clock figure is still worth keeping as a
+     * separate diagnostic (it is the true throughput of running this loop),
+     * so it is reported too, just not conflated with the per-rule stats.
+     */
+    uint64_t sum_ns = 0;
+    for (int i = 0; i < n; i++) sum_ns += samples[i];
+
     /* Cleanup so repeat runs don't accumulate. */
     for (int i = 0; i < n; i++) {
         uint32_t pdr_id = PDR_BASE  + i;
@@ -124,19 +147,20 @@ int main(int argc, char **argv)
     memcpy(sorted, samples, n * sizeof(uint64_t));
     qsort(sorted, n, sizeof(uint64_t), cmp_u64);
 
-    uint64_t total_ns = (uint64_t)(t_end.tv_sec - t_start.tv_sec) * 1000000000ULL +
-                        (uint64_t)(t_end.tv_nsec - t_start.tv_nsec);
+    uint64_t wall_ns = (uint64_t)(t_end.tv_sec - t_start.tv_sec) * 1000000000ULL +
+                       (uint64_t)(t_end.tv_nsec - t_start.tv_nsec);
 
-    double min_us  = sorted[0]            / 1000.0;
-    double p50_us  = pct(sorted, n, 0.50) / 1000.0;
-    double p95_us  = pct(sorted, n, 0.95) / 1000.0;
-    double p99_us  = pct(sorted, n, 0.99) / 1000.0;
-    double max_us  = sorted[n-1]          / 1000.0;
-    double tot_ms  = total_ns / 1e6;
-    double mean_us = (total_ns / (double)n) / 1000.0;
+    double min_us   = sorted[0]            / 1000.0;
+    double p50_us   = pct(sorted, n, 0.50) / 1000.0;
+    double p95_us   = pct(sorted, n, 0.95) / 1000.0;
+    double p99_us   = pct(sorted, n, 0.99) / 1000.0;
+    double max_us   = sorted[n-1]          / 1000.0;
+    double tot_ms   = sum_ns / 1e6;                 /* == sum(samples), reconciles with percentiles */
+    double mean_us  = (sum_ns / (double)n) / 1000.0; /* == mean(samples) */
+    double wall_ms  = wall_ns / 1e6;                 /* diagnostic: true loop wall-clock, includes housekeeping */
 
-    printf("N=%d  total=%.3f ms  per-rule mean=%.3f us  min=%.3f  p50=%.3f  p95=%.3f  p99=%.3f  max=%.3f\n",
-           n, tot_ms, mean_us, min_us, p50_us, p95_us, p99_us, max_us);
+    printf("N=%d  total=%.3f ms  per-rule mean=%.3f us  min=%.3f  p50=%.3f  p95=%.3f  p99=%.3f  max=%.3f  wall=%.3f\n",
+           n, tot_ms, mean_us, min_us, p50_us, p95_us, p99_us, max_us, wall_ms);
 
     if (csv) {
         FILE *f = fopen(csv, "w");
