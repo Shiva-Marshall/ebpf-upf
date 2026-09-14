@@ -3,77 +3,13 @@
 // Companion implementation for "eBPF-Driven Programmable Traffic Steering
 // and In-Kernel Observability for 5G User Plane Functions".
 
-#include "vmlinux.h"
-#include <bpf/bpf_helpers.h>
+#include "upf_maps.h"
 #include <bpf/bpf_endian.h>
 
 #define ETH_P_IP        0x0800
 #define IPPROTO_UDP_X   17
 #define GTPU_PORT       2152
 #define GTPU_GPDU       0xff   /* G-PDU message type */
-
-#define MAX_TEIDS       65536
-#define MAX_PDRS        4096
-
-/* ------------- Shared types (must match userspace) ------------- */
-
-struct session_val {
-    __u32 pdr_id;
-    __u32 qer_id;
-    __u32 far_id;
-    __u32 _pad;
-};
-
-struct pdr_val {
-    __u32 far_id;
-    __u32 qer_id;
-    __u32 precedence;
-    __u32 _pad;
-};
-
-enum metric_idx {
-    M_RX_TOTAL = 0,
-    M_RX_GTPU,
-    M_RX_GPDU,
-    M_HIT,
-    M_MISS_TEID,
-    M_MISS_PDR,
-    M_PASS_NONGTP,
-    M_PASS_CTRL,
-    M_DROP_PARSE,
-    M_MAX,
-};
-
-/* ------------- Maps ------------- */
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key,   __u32);     /* TEID (host order) */
-    __type(value, struct session_val);
-    __uint(max_entries, MAX_TEIDS);
-} teid_session SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key,   __u32);     /* PDR id */
-    __type(value, struct pdr_val);
-    __uint(max_entries, MAX_PDRS);
-} pdr_table SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key,   __u32);
-    __type(value, __u64);
-    __uint(max_entries, M_MAX);
-} metrics SEC(".maps");
-
-/* ------------- Helpers ------------- */
-
-static __always_inline void bump(__u32 idx)
-{
-    __u64 *v = bpf_map_lookup_elem(&metrics, &idx);
-    if (v) __sync_fetch_and_add(v, 1);
-}
 
 /* ------------- Main XDP program ------------- */
 
@@ -162,8 +98,10 @@ int upf_xdp_uplink(struct xdp_md *ctx)
 
     bump(M_HIT);
 
-    /* For the prototype we PASS the packet to the kernel after lookup
-       (a production build would XDP_REDIRECT to N6 after decap). */
+    /* Classification complete. Forwarding disposition (FAR/QER/URR) is
+     * enforced by the TC ingress programme (upf_tc.c) after sk_buff
+     * allocation, which independently re-derives TEID/session/PDR/FAR --
+     * see upf_tc.c for why metadata is not propagated via skb->cb[]. */
     return XDP_PASS;
 }
 
