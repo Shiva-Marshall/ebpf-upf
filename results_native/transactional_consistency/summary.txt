@@ -1,0 +1,19 @@
+Transactional-consistency concurrent-traffic experiment
+=========================================================
+40,000 G-PDU packets sent at 5,000 pps (8s) via gtpu_blast, concurrently
+with 176 atomic tc_bundle modifications (test/toggle_bundle.py) alternating
+the tc_bundle_map[0x2000] entry between (far_id=1,qer_id=1) and
+(far_id=3,qer_id=3) as fast as the control-plane script could issue them.
+
+Every forwarded packet emits a decision_event (UPF_EMIT_DECISION_EVENTS
+build) carrying the (far_id, qer_id, generation, pdr_id) actually used.
+
+Result:
+  total events parsed:                 40000
+  torn (invalid far/qer pair) events:  0
+  generation-parity mismatches:        0
+  pair distribution:                   {(3,3): 20190, (1,1): 19810}
+  distinct generations observed:       176
+
+Zero packets observed a torn/mixed read across 40,000 packets and 176
+concurrent atomic modifications.

@@ -65,6 +65,13 @@ def map_dump(name):
     return json.loads(out)
 
 
+def map_lookup(name, key_bytes):
+    cmd = ["sudo", BPFTOOL, "-j", "map", "lookup", "pinned", f"{PIN_BASE}/{name}",
+           "key"] + _bytes_to_hexargs(key_bytes)
+    out = run(cmd).stdout
+    return json.loads(out)
+
+
 # ---------------- domain encoders ----------------
 
 def enc_session(pdr_id, qer_id, far_id):
@@ -138,15 +145,85 @@ def read_urr(urr_id):
     return None
 
 
+def enc_bundle_slot(far_id, qer_id, urr_id, precedence, generation):
+    # struct tc_bundle_slot { u32 far_id; u32 qer_id; u32 urr_id; u32 precedence; u32 generation; u32 _pad; }
+    return struct.pack("<IIIIII", far_id, qer_id, urr_id, precedence, generation, 0)
+
+
+def enc_bundle(active, slot0_bytes, slot1_bytes):
+    # struct tc_bundle { u32 active; u32 _pad; struct tc_bundle_slot slot[2]; }
+    return struct.pack("<II", active, 0) + slot0_bytes + slot1_bytes
+
+
+def install_tc_bundle(pdr_id, far_id, qer_id, urr_id, precedence, generation=0):
+    """Initial install: both slots identical, active=slot 0."""
+    slot = enc_bundle_slot(far_id, qer_id, urr_id, precedence, generation)
+    map_update("tc_bundle_map", enc_u32(pdr_id), enc_bundle(0, slot, slot))
+
+
+def modify_tc_bundle(pdr_id, far_id=None, qer_id=None, urr_id=None, precedence=None):
+    """Transactional-consistency mechanism (Section on transactional
+    consistency): atomically commit a change to one or more of
+    far_id/qer_id/urr_id/precedence for a PDR, as a single logical unit,
+    via the two-write double-buffer protocol.
+
+    Step 1 writes the complete new tuple into the *inactive* slot -- this
+    is invisible to the datapath, since `active` still names the other
+    slot, so it cannot be observed mid-write by any packet.
+    Step 2 flips only `active`. This is the single atomic commit point:
+    every packet processed before it sees the pre-modification tuple in
+    full; every packet processed after sees the post-modification tuple
+    in full. No packet can ever observe a hybrid of old and new fields,
+    regardless of how many of far_id/qer_id/urr_id/precedence changed
+    together in this call.
+
+    Returns the new generation number, for the caller to correlate against
+    what a concurrent-traffic test observes.
+    """
+    j = map_lookup("tc_bundle_map", enc_u32(pdr_id))
+    v = j["formatted"]["value"]    # bpftool -j gives raw bytes under "value"; the
+                                    # BTF-parsed struct is under "formatted"
+    active = int(v["active"])
+    cur = v["slot"][active]
+    inactive = 1 - active
+
+    new_far_id = far_id if far_id is not None else int(cur["far_id"])
+    new_qer_id = qer_id if qer_id is not None else int(cur["qer_id"])
+    new_urr_id = urr_id if urr_id is not None else int(cur["urr_id"])
+    new_prec   = precedence if precedence is not None else int(cur["precedence"])
+    new_gen    = int(cur["generation"]) + 1
+
+    cur_slot_bytes = enc_bundle_slot(int(cur["far_id"]), int(cur["qer_id"]),
+                                      int(cur["urr_id"]), int(cur["precedence"]),
+                                      int(cur["generation"]))
+    new_slot_bytes = enc_bundle_slot(new_far_id, new_qer_id, new_urr_id, new_prec, new_gen)
+
+    slots_prep = [None, None]
+    slots_prep[active] = cur_slot_bytes
+    slots_prep[inactive] = new_slot_bytes
+    # Step 1: new tuple in the inactive slot; active unchanged.
+    map_update("tc_bundle_map", enc_u32(pdr_id), enc_bundle(active, slots_prep[0], slots_prep[1]))
+    # Step 2: commit -- flip active. Single atomic visibility point.
+    map_update("tc_bundle_map", enc_u32(pdr_id), enc_bundle(inactive, slots_prep[0], slots_prep[1]))
+
+    return new_gen
+
+
 def install_session(teid, pdr_id, qer_id=1, far_id=1, precedence=100, urr_id=1):
-    """Install one PFCP-equivalent session: pdr_table entry first, then teid."""
+    """Install one PFCP-equivalent session: pdr_table (used by the XDP
+    classification stage for PDR-existence checks), tc_bundle_map (used by
+    TC ingress for the FAR/QER/URR decision -- see modify_tc_bundle for the
+    transactional-consistency mechanism that protects later changes to
+    this), then teid_session last."""
     map_update("pdr_table",   enc_u32(pdr_id),   enc_pdr(far_id, qer_id, precedence, urr_id))
+    install_tc_bundle(pdr_id, far_id, qer_id, urr_id, precedence)
     map_update("teid_session", enc_u32(teid),    enc_session(pdr_id, qer_id, far_id))
 
 
 def remove_session(teid, pdr_id):
-    map_delete("teid_session", enc_u32(teid))
-    map_delete("pdr_table",    enc_u32(pdr_id))
+    map_delete("teid_session",   enc_u32(teid))
+    map_delete("pdr_table",      enc_u32(pdr_id))
+    map_delete("tc_bundle_map",  enc_u32(pdr_id))
 
 
 # ---------------- metrics ----------------

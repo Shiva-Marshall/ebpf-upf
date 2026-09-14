@@ -105,11 +105,11 @@ static __always_inline void upf_urr_update(__u32 urr_id, __u32 pkt_len)
  * Ethernet header and the inner IP packet intact), apply QER policing and
  * URR accounting to the decapsulated inner packet, then redirect out the
  * FAR's configured egress interface. */
-static __always_inline int upf_far_forward(struct __sk_buff *skb, struct pdr_val *pdr,
+static __always_inline int upf_far_forward(struct __sk_buff *skb,
+                                            __u32 far_id, __u32 qer_id, __u32 urr_id,
+                                            __u32 pdr_id, __u32 generation,
                                             __u32 outer_hdr_len)
 {
-    __u32 far_id = pdr->far_id, qer_id = pdr->qer_id, urr_id = pdr->urr_id;
-
     if (bpf_skb_adjust_room(skb, -(int)outer_hdr_len, BPF_ADJ_ROOM_MAC_X,
                              BPF_F_ADJ_ROOM_FIXED_GSO_X) < 0) {
         bump(M_TC_DECAP_ERR);
@@ -132,6 +132,15 @@ static __always_inline int upf_far_forward(struct __sk_buff *skb, struct pdr_val
     bump(M_TC_QER_PASS);
 
     upf_urr_update(urr_id, pkt_len);
+
+#ifdef UPF_EMIT_DECISION_EVENTS
+    struct decision_event dev = {
+        .far_id = far_id, .qer_id = qer_id, .generation = generation, .pdr_id = pdr_id,
+    };
+    bpf_perf_event_output(skb, &perf_events, BPF_F_CURRENT_CPU_X, &dev, sizeof(dev));
+#else
+    (void)generation; (void)pdr_id;
+#endif
 
     bump(M_TC_FAR_FORWARD);
     int ret = bpf_redirect(far->out_ifindex, 0);
@@ -185,12 +194,21 @@ int upf_tc_ingress(struct __sk_buff *skb)
         bump(M_TC_MISS_FAR);
         return TC_ACT_OK_X;       /* race with a concurrent rule update */
     }
-    struct pdr_val *pdr = bpf_map_lookup_elem(&pdr_table, &sess->pdr_id);
-    if (!pdr) {
+
+    /* Single atomic whole-value read: transactional-consistency mechanism,
+     * see the tc_bundle comment in upf_maps.h. Whichever slot `active`
+     * names is a complete, self-consistent (far_id, qer_id, urr_id,
+     * precedence) tuple as of one Session Modification -- never a mix of
+     * fields from two different modifications. */
+    struct tc_bundle *bundle = bpf_map_lookup_elem(&tc_bundle_map, &sess->pdr_id);
+    if (!bundle) {
         bump(M_TC_MISS_FAR);
         return TC_ACT_OK_X;
     }
-    struct far_val *far = bpf_map_lookup_elem(&far_table, &pdr->far_id);
+    __u32 active = bundle->active & 1;    /* mask: verifier needs a provably-bounded index */
+    struct tc_bundle_slot *cur = &bundle->slot[active];
+
+    struct far_val *far = bpf_map_lookup_elem(&far_table, &cur->far_id);
     if (!far) {
         bump(M_TC_MISS_FAR);
         return TC_ACT_OK_X;
@@ -212,7 +230,7 @@ int upf_tc_ingress(struct __sk_buff *skb)
         struct buffer_event ev = {
             .teid    = teid,
             .pdr_id  = sess->pdr_id,
-            .far_id  = pdr->far_id,
+            .far_id  = cur->far_id,
             .pkt_len = skb->len,
             .ts_ns   = bpf_ktime_get_ns(),
         };
@@ -224,7 +242,8 @@ int upf_tc_ingress(struct __sk_buff *skb)
     /* FAR_FORWARD: strip the outer IP/UDP/GTP-U header, apply QER/URR,
      * then redirect. */
     __u32 outer_hdr_len = ihl_bytes + (__u32)sizeof(struct udphdr) + 8;
-    return upf_far_forward(skb, pdr, outer_hdr_len);
+    return upf_far_forward(skb, cur->far_id, cur->qer_id, cur->urr_id,
+                            sess->pdr_id, cur->generation, outer_hdr_len);
 }
 
 char _license[] SEC("license") = "GPL";

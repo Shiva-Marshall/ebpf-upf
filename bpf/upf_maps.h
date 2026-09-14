@@ -74,6 +74,46 @@ struct qer_bucket_state {
     __u64 last_ns;
 };
 
+/* Transactional-consistency mechanism (Section on transactional
+ * consistency): which far_id/qer_id/urr_id a PDR resolves to is
+ * double-buffered here, with an explicit, independently-verifiable
+ * generation counter, rather than relying solely on pdr_val's existing
+ * (correct, but implicit and unobservable) whole-value-replacement
+ * atomicity. A single bpf_map_update_elem() on pdr_table is already
+ * atomic per key, which is sufficient *if* the control plane always
+ * writes any newly-referenced far_id/qer_id/urr_id entries before
+ * flipping the pointer -- but that safety property is then an unenforced
+ * coding convention, not something a packet-level test can confirm ever
+ * held. tc_bundle makes the same guarantee structurally explicit and
+ * testable: the datapath performs exactly one lookup (a single atomic
+ * whole-value read of a BPF_MAP_TYPE_ARRAY element) and reads whichever
+ * slot `active` names, so it can never observe a hybrid of old and new
+ * ids; the `generation` field on each slot lets a concurrent-traffic test
+ * directly assert "every processed packet's decision belongs to exactly
+ * one generation" rather than only inferring it. A modification writes
+ * the complete new (far_id, qer_id, urr_id, precedence, generation) tuple
+ * into the *inactive* slot first (invisible to the datapath, since
+ * `active` still names the other slot), then commits with a second
+ * whole-value replacement that flips only `active`. far_table/qer_table
+ * content updates in place remain independently atomic per their own key
+ * and are unaffected by this mechanism -- tc_bundle specifically closes
+ * the "which ids apply, together" question, not the "what does this
+ * shared id currently mean" question. */
+struct tc_bundle_slot {
+    __u32 far_id;
+    __u32 qer_id;
+    __u32 urr_id;
+    __u32 precedence;
+    __u32 generation;
+    __u32 _pad;
+};
+
+struct tc_bundle {
+    __u32 active;              /* 0 or 1: which slot below is currently live */
+    __u32 _pad;
+    struct tc_bundle_slot slot[2];
+};
+
 struct urr_val {
     __u64 bytes_ul;
     __u64 bytes_dl;
@@ -108,6 +148,25 @@ struct buffer_event {
     __u32 far_id;
     __u32 pkt_len;
     __u64 ts_ns;
+};
+
+/* Emitted for FAR_FORWARD when UPF_EMIT_DECISION_EVENTS is set at compile
+ * time: an audit trail used only by the transactional-consistency
+ * concurrent-traffic experiment (Section on transactional consistency),
+ * not part of the production observability path -- per-packet perf events
+ * at line rate would themselves become a bottleneck, exactly the failure
+ * mode the paper's observability design deliberately avoids elsewhere.
+ * Carries the (far_id, qer_id, generation) tuple actually used for one
+ * packet's decision, so a concurrent test can directly verify that every
+ * observed tuple is one that was validly configured together -- as
+ * opposed to a "torn" cross-combination of fields from two different
+ * generations, which would be direct evidence of a transactional-
+ * consistency failure. */
+struct decision_event {
+    __u32 far_id;
+    __u32 qer_id;
+    __u32 generation;
+    __u32 pdr_id;
 };
 
 enum metric_idx {
@@ -181,6 +240,17 @@ struct {
     __type(value, struct qer_bucket_state);
     __uint(max_entries, MAX_QERS);
 } qer_state SEC(".maps");
+
+struct {
+    /* HASH, not ARRAY: pdr_id values in this codebase use large sparse
+     * offsets (e.g. 0x2000, 0x20000 for the rule-update benchmark), which
+     * would exceed an ARRAY map's max_entries-as-index-bound requirement
+     * -- the same reason pdr_table itself is a HASH map. */
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key,   __u32);     /* PDR id, same key space as pdr_table */
+    __type(value, struct tc_bundle);
+    __uint(max_entries, MAX_PDRS);
+} tc_bundle_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
