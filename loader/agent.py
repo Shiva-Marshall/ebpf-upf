@@ -29,7 +29,7 @@ METRIC_NAMES = [
     "pass_nongtp", "pass_ctrl", "drop_parse",
     "tc_miss_far", "tc_far_drop", "tc_far_forward", "tc_far_buffer",
     "tc_decap_err", "tc_redirect_err", "tc_qer_pass", "tc_qer_drop",
-    "tc_urr_updated",
+    "tc_urr_updated", "tc_dl_hit", "tc_dl_miss", "tc_dl_encap_err",
 ]
 
 # enum far_action in bpf/upf_maps.h
@@ -99,6 +99,26 @@ def install_far(far_id, action, out_ifindex=0, peer_ipv4_be=0, out_teid_be=0):
 def install_qer(qer_id, mbr_ul_bps=0, mbr_dl_bps=0, burst_bytes=0):
     """mbr_ul_bps=0 means unlimited (upf_qer_admit() fails open on mbr==0)."""
     map_update("qer_table", enc_u32(qer_id), enc_qer(mbr_ul_bps, mbr_dl_bps, burst_bytes))
+
+
+def ip_to_be32_bytes(dotted):
+    import socket
+    return socket.inet_aton(dotted)   # already network byte order, 4 bytes
+
+
+def install_dl_ue(ue_ip_dotted, teid, gnb_ip_dotted, qfi=1):
+    """dl_ue_map key = UE IPv4 (network byte order); value = dl_ue_val."""
+    key = ip_to_be32_bytes(ue_ip_dotted)
+    teid_be = struct.pack(">I", teid)               # GTP-U TEID is stored network-order in dl_ue_val
+    gnb_be  = ip_to_be32_bytes(gnb_ip_dotted)
+    # struct dl_ue_val { __u32 teid_be; __u32 gnb_ipv4_be; __u16 qfi; __u16 _pad; }
+    val = teid_be + gnb_be + struct.pack("<HH", qfi, 0)
+    map_update("dl_ue_map", key, val)
+
+
+def install_upf_config(n3_addr_dotted):
+    # struct upf_config { __u32 n3_addr_be; }
+    map_update("upf_config_map", enc_u32(0), ip_to_be32_bytes(n3_addr_dotted))
 
 
 def read_urr(urr_id):

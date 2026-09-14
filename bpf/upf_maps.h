@@ -108,7 +108,19 @@ enum metric_idx {
     M_TC_QER_PASS,
     M_TC_QER_DROP,
     M_TC_URR_UPDATED,
+    /* TC-egress (downlink) stages. */
+    M_TC_DL_HIT,
+    M_TC_DL_MISS,
+    M_TC_DL_ENCAP_ERR,
     M_MAX,
+};
+
+/* Tiny single-entry config map: the UPF's own N3-facing IPv4 address,
+ * network byte order, used as the outer IP source when the TC egress
+ * programme builds a new GTP-U encapsulation header. Populated by the
+ * control plane at startup (key is always 0). */
+struct upf_config {
+    __u32 n3_addr_be;
 };
 
 /* ------------- Maps (all pinned by name -> shared across objects) ------------- */
@@ -168,6 +180,13 @@ struct {
     __type(value, __u64);
     __uint(max_entries, M_MAX);
 } metrics SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key,   __u32);
+    __type(value, struct upf_config);
+    __uint(max_entries, 1);
+} upf_config_map SEC(".maps");
 
 static __always_inline void bump(__u32 idx)
 {
