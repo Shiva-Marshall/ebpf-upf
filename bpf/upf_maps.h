@@ -88,6 +88,28 @@ struct dl_ue_val {
     __u16 _pad;
 };
 
+/* Emitted via perf_events for the FAR_BUFFER path. bpf_sk_redirect_map()
+ * (which the paper describes for handing a BUFFER packet to a userspace
+ * socket) is only a valid helper call from BPF_PROG_TYPE_SK_SKB/SK_MSG
+ * programs -- verified empirically: loading it from this TC (SCHED_CLS)
+ * programme is rejected outright by the verifier ("unknown func
+ * bpf_sk_redirect_map"), not merely discouraged. True in-kernel packet
+ * retention would need a custom ring-buffer hold/replay scheme, out of
+ * scope here. The mechanism actually used -- notify control plane via a
+ * compact perf event, drop the individual packet at the kernel layer --
+ * matches common practice in real UPF implementations for the 3GPP
+ * BUFFER action: the SMF pages the UE off the back of the Downlink Data
+ * Notification this event enables, and delivery is retried once the PDR
+ * is switched back to FORWARD, rather than the original dropped packet
+ * itself being replayed from a kernel-held copy. */
+struct buffer_event {
+    __u32 teid;
+    __u32 pdr_id;
+    __u32 far_id;
+    __u32 pkt_len;
+    __u64 ts_ns;
+};
+
 enum metric_idx {
     M_RX_TOTAL = 0,
     M_RX_GTPU,
@@ -187,6 +209,12 @@ struct {
     __type(value, struct upf_config);
     __uint(max_entries, 1);
 } upf_config_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+    __type(key,   __u32);     /* CPU index */
+    __type(value, __u32);
+} perf_events SEC(".maps");
 
 static __always_inline void bump(__u32 idx)
 {

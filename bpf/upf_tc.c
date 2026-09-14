@@ -28,6 +28,7 @@
 #define TC_ACT_OK_X         0
 #define TC_ACT_SHOT_X       2
 #define TC_ACT_REDIRECT_X   7
+#define BPF_F_CURRENT_CPU_X 0xffffffffULL
 
 #define ETH_P_IP_X      0x0800
 #define IPPROTO_UDP_X   17
@@ -201,11 +202,23 @@ int upf_tc_ingress(struct __sk_buff *skb)
     }
 
     if (far->action == FAR_BUFFER) {
-        /* Full design: bpf_sk_redirect_map() to a userspace socket + perf
-         * event notification to the PFCP agent (Section on observability).
-         * Not yet implemented: pass through unbuffered for now. */
+        /* bpf_sk_redirect_map() (the paper's stated mechanism for handing
+         * this packet to a userspace socket) is not a valid call from a
+         * TC/classifier programme -- verified empirically, the verifier
+         * rejects it outright ("unknown func"), it is restricted to
+         * BPF_PROG_TYPE_SK_SKB/SK_MSG. See the buffer_event comment in
+         * upf_maps.h for the mechanism actually used instead: notify via
+         * perf event, drop the packet at the kernel layer. */
+        struct buffer_event ev = {
+            .teid    = teid,
+            .pdr_id  = sess->pdr_id,
+            .far_id  = pdr->far_id,
+            .pkt_len = skb->len,
+            .ts_ns   = bpf_ktime_get_ns(),
+        };
+        bpf_perf_event_output(skb, &perf_events, BPF_F_CURRENT_CPU_X, &ev, sizeof(ev));
         bump(M_TC_FAR_BUFFER);
-        return TC_ACT_OK_X;
+        return TC_ACT_SHOT_X;
     }
 
     /* FAR_FORWARD: strip the outer IP/UDP/GTP-U header, apply QER/URR,
