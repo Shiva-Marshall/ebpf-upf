@@ -1,0 +1,69 @@
+eUPF same-testbed comparison (native-XDP hardware, Intel XXV710/i40e)
+=======================================================================
+
+Build: cloned github.com/edgecomllc/eupf, built from source (Go 1.23.5,
+bpf2go-generated eBPF objects, not stubbed). Required fixing a missing
+/usr/include/asm symlink (asm/types.h not found under clang -target bpf
+without it) -- standard, documented fix, not an eUPF defect.
+
+Attach: native XDP mode confirmed via `ip link show` (`xdp`, not
+`xdpgeneric`) on the same enp24s0f0 interface our own prototype uses
+(sequential testing: detached ours, ran eUPF's tests, restored ours --
+verified with a full regression check before and after).
+
+Control plane: driven via real PFCP (scapy.contrib.pfcp, adapted from
+eUPF's own pytest/test_session.py), not a shortcut. Association Setup +
+Session Establishment both received correct response message types
+(6, 51); eUPF's own log confirmed "Session Establishment Request ...
+accepted" with the exact PDR/FAR values sent showing up in its REST API.
+
+Functional (data-plane) parity: CONFIRMED bit-exact. Sent the same
+known-TEID G-PDU test traffic used throughout this project's own
+validation; eUPF's decapsulated output on the wire is byte-identical to
+our own prototype's (10.45.0.1:12345 -> 8.8.8.8:53, 106 bytes). Getting
+here required diagnosing why the first attempt produced nothing visible:
+eUPF's FORWARD path uses a real bpf_fib_lookup() kernel routing decision
+(not a fixed ifindex), so the test packet's inner destination (8.8.8.8)
+was being correctly redirected out the box's actual default route
+(the management NIC), not our test interface -- fixed by adding a host
+route + static neighbor entry for the test destination, not an eUPF bug.
+
+Rule-update latency (N=100, both same hardware):
+  - Our own prototype, bpf()-syscall level (bench_rule_update.c):
+      mean=2.575us  p50=2.570us  p95=2.788us  p99=2.981us
+  - eUPF, REST API level (PUT /api/v1/uplink_pdr_map/:id,
+    bench_eupf_ruleupdate.py): mean=437.875us  p50=401.142us
+    p95=488.569us  p99=888.141us
+  - Our own prototype, CURRENT reference control-plane stub level
+    (loader/agent.py's install_session(), which issues 4 separate
+    `sudo bpftool map update` subprocess calls per session):
+      mean=44726.181us (44.7ms)  p50=44650.374us  p95=45536.335us
+      p99=45891.959us
+
+These three numbers are NOT directly interchangeable -- they measure
+three different abstraction layers, and reporting only the first without
+the third would be misleading about what our *reference agent* actually
+costs today:
+  1. bpf()-syscall level: proves the underlying kernel mechanism is fast
+     (this is what the paper's headline "0.52ms for 100 rules" claim
+     measures).
+  2. eUPF's REST API level: a real, production-quality, long-lived-process
+     control plane using cilium/ebpf library calls directly (no
+     subprocess spawning) -- the fairest available same-abstraction-level
+     comparison to what a real control plane costs.
+  3. Our own agent.py: NOT comparable to (2) despite superficially being
+     "our control plane" -- it is a Python stub that shells out to
+     `sudo bpftool` per map write (disclosed in the paper as a stub
+     standing in for a full PFCP stack), and each subprocess spawn costs
+     ~11-15ms (confirmed independently: a single bare `time sudo bpftool
+     map update ...` call takes ~15ms), completely dominated by sudo/exec
+     overhead unrelated to BPF map-update cost itself. This is an
+     artifact of the reference implementation's subprocess-based design,
+     not of the architecture. A production Go/C agent using direct
+     libbpf/cilium-ebpf bindings (no subprocess spawning) -- like eUPF's
+     own control plane -- would not pay this cost, as eUPF's own number
+     (2) demonstrates directly on the same hardware.
+
+This is disclosed explicitly rather than only reporting (1), since a
+reviewer recomputing this from the released harness would find the same
+discrepancy.
