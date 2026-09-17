@@ -47,7 +47,10 @@ Rule-update latency (N=100, all on the same hardware):
     mechanism eUPF's own cilium/ebpf-based control plane uses):
       p50~=21.0us  p95~=22.5us  p99~=115-135us (single-sample tail,
       5 repeated 100-rule batches, consistent across all 5)
-      total ~2.3ms per 100-rule batch (vs. 43.9ms before the fix)
+      total ~2.3ms per 100-rule batch (vs. ~4.47s for the same 100-rule
+      batch before the fix: 44.7ms PER RULE x 100 rules -- an earlier
+      draft of this file mistakenly wrote "43.9ms" for that total, which
+      was the per-rule figure, not the per-batch one)
 
 The subprocess-overhead issue was found, root-caused (confirmed
 independently: a single bare `time sudo bpftool map update ...` call
