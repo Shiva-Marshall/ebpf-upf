@@ -164,7 +164,7 @@ static __always_inline void upf_urr_update(__u32 urr_id, __u32 pkt_len)
 static __always_inline int upf_far_forward(struct __sk_buff *skb,
                                             __u32 far_id, __u32 qer_id, __u32 urr_id,
                                             __u32 pdr_id, __u32 generation,
-                                            __u32 outer_hdr_len)
+                                            __u32 outer_hdr_len, __u64 t_entry)
 {
     if (bpf_skb_adjust_room(skb, -(int)outer_hdr_len, BPF_ADJ_ROOM_MAC_X,
                              BPF_F_ADJ_ROOM_FIXED_GSO_X) < 0) {
@@ -198,6 +198,19 @@ static __always_inline int upf_far_forward(struct __sk_buff *skb,
     (void)generation; (void)pdr_id;
 #endif
 
+#ifdef UPF_EMIT_LATENCY_EVENTS
+    /* Full parse->FAR/QER/decap pipeline cost for this packet, measured
+     * immediately before the redirect that hands it off -- see the
+     * latency_event comment in upf_maps.h. */
+    struct latency_event lev = {
+        .latency_ns = bpf_ktime_get_ns() - t_entry,
+        .pkt_len = pkt_len,
+    };
+    bpf_perf_event_output(skb, &perf_events, BPF_F_CURRENT_CPU_X, &lev, sizeof(lev));
+#else
+    (void)t_entry;
+#endif
+
     bump(M_TC_FAR_FORWARD);
     int ret = bpf_redirect(far->out_ifindex, 0);
     if (ret != TC_ACT_REDIRECT_X)
@@ -208,6 +221,11 @@ static __always_inline int upf_far_forward(struct __sk_buff *skb,
 SEC("classifier")
 int upf_tc_ingress(struct __sk_buff *skb)
 {
+#ifdef UPF_EMIT_LATENCY_EVENTS
+    __u64 t_entry = bpf_ktime_get_ns();
+#else
+    __u64 t_entry = 0;
+#endif
     void *data     = (void *)(long)skb->data;
     void *data_end = (void *)(long)skb->data_end;
 
@@ -299,7 +317,7 @@ int upf_tc_ingress(struct __sk_buff *skb)
      * then redirect. */
     __u32 outer_hdr_len = ihl_bytes + (__u32)sizeof(struct udphdr) + 8;
     return upf_far_forward(skb, cur->far_id, cur->qer_id, cur->urr_id,
-                            sess->pdr_id, cur->generation, outer_hdr_len);
+                            sess->pdr_id, cur->generation, outer_hdr_len, t_entry);
 }
 
 char _license[] SEC("license") = "GPL";

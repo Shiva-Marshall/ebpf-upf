@@ -169,6 +169,22 @@ struct decision_event {
     __u32 pdr_id;
 };
 
+/* Emitted for FAR_FORWARD when UPF_EMIT_LATENCY_EVENTS is set at compile
+ * time (Phase 8, in-pipeline latency measurement): the full parse->FAR/
+ * QER/decap->redirect pipeline cost for one packet, bracketed by
+ * bpf_ktime_get_ns() at TC-ingress entry and again immediately before the
+ * redirect. Both reads happen on the same CPU within one programme
+ * invocation for the same packet, so there is no cross-hook correlation
+ * problem to solve (unlike trying to bracket across the XDP/TC boundary).
+ * Only emitted on the admitted/forwarded path, matching the same segment
+ * definition ("pktParse->executeFAR") the reference benchmarking
+ * framework on this host uses for other UPFs' in-pipeline latency probes. */
+struct latency_event {
+    __u64 latency_ns;
+    __u32 pkt_len;
+    __u32 _pad;
+};
+
 enum metric_idx {
     M_RX_TOTAL = 0,
     M_RX_GTPU,

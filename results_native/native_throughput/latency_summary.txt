@@ -1,0 +1,9 @@
+samples: 249998
+min_ns: 119
+mean_ns: 140.7
+p50_ns: 141.0
+p90_ns: 144.0
+p99_ns: 160.0
+p99.9_ns: 166.0
+max_ns: 2079
+distinct pkt_len values observed: [114]
