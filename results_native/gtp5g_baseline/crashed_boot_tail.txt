@@ -1,0 +1,40 @@
+Sep 17 12:03:21 three phc2sys[1019610]: [172047.177] CLOCK_REALTIME phc offset         2 s2 freq   +7288 delay   1120
+Sep 17 12:03:21 three ptp4l[1026490]: [172047.229] rms    4 max    8 freq  +1162 +/-   6 delay   339 +/-   1
+Sep 17 12:03:21 three phc2sys[1019610]: [172047.302] CLOCK_REALTIME phc offset        -5 s2 freq   +7282 delay   1114
+Sep 17 12:03:21 three phc2sys[1019610]: [172047.428] CLOCK_REALTIME phc offset        -1 s2 freq   +7284 delay   1119
+Sep 17 12:03:21 three phc2sys[1019610]: [172047.553] CLOCK_REALTIME phc offset        -2 s2 freq   +7283 delay   1119
+Sep 17 12:03:22 three phc2sys[1019610]: [172047.678] CLOCK_REALTIME phc offset        -1 s2 freq   +7283 delay   1110
+Sep 17 12:03:22 three phc2sys[1019610]: [172047.803] CLOCK_REALTIME phc offset        -2 s2 freq   +7282 delay   1116
+Sep 17 12:03:22 three phc2sys[1019610]: [172047.928] CLOCK_REALTIME phc offset         4 s2 freq   +7287 delay   1113
+Sep 17 12:03:22 three phc2sys[1019610]: [172048.053] CLOCK_REALTIME phc offset        -4 s2 freq   +7281 delay   1100
+Sep 17 12:03:22 three phc2sys[1019610]: [172048.178] CLOCK_REALTIME phc offset         0 s2 freq   +7283 delay   1115
+Sep 17 12:03:22 three ptp4l[1026490]: [172048.239] rms    3 max    7 freq  +1162 +/-   6 delay   338 +/-   1
+Sep 17 12:03:22 three phc2sys[1019610]: [172048.303] CLOCK_REALTIME phc offset        -2 s2 freq   +7281 delay   1116
+Sep 17 12:03:22 three phc2sys[1019610]: [172048.428] CLOCK_REALTIME phc offset        -2 s2 freq   +7281 delay   1117
+Sep 17 12:03:22 three phc2sys[1019610]: [172048.553] CLOCK_REALTIME phc offset        -2 s2 freq   +7280 delay   1114
+Sep 17 12:03:23 three phc2sys[1019610]: [172048.678] CLOCK_REALTIME phc offset         1 s2 freq   +7283 delay   1110
+Sep 17 12:03:23 three phc2sys[1019610]: [172048.803] CLOCK_REALTIME phc offset         0 s2 freq   +7282 delay   1105
+Sep 17 12:03:23 three phc2sys[1019610]: [172048.929] CLOCK_REALTIME phc offset         2 s2 freq   +7284 delay   1115
+Sep 17 12:03:23 three phc2sys[1019610]: [172049.054] CLOCK_REALTIME phc offset        -2 s2 freq   +7280 delay   1102
+Sep 17 12:03:23 three phc2sys[1019610]: [172049.179] CLOCK_REALTIME phc offset         3 s2 freq   +7285 delay   1122
+Sep 17 12:03:23 three ptp4l[1026490]: [172049.248] rms    3 max    7 freq  +1161 +/-   6 delay   339 +/-   1
+Sep 17 12:03:23 three phc2sys[1019610]: [172049.304] CLOCK_REALTIME phc offset        -4 s2 freq   +7279 delay   1113
+Sep 17 12:03:23 three phc2sys[1019610]: [172049.429] CLOCK_REALTIME phc offset         2 s2 freq   +7284 delay   1112
+Sep 17 12:03:23 three phc2sys[1019610]: [172049.554] CLOCK_REALTIME phc offset        -2 s2 freq   +7280 delay   1100
+Sep 17 12:03:24 three phc2sys[1019610]: [172049.679] CLOCK_REALTIME phc offset         6 s2 freq   +7288 delay   1120
+Sep 17 12:03:24 three phc2sys[1019610]: [172049.804] CLOCK_REALTIME phc offset         6 s2 freq   +7289 delay   1118
+Sep 17 12:03:24 three phc2sys[1019610]: [172049.929] CLOCK_REALTIME phc offset         2 s2 freq   +7287 delay   1120
+Sep 17 12:03:24 three phc2sys[1019610]: [172050.054] CLOCK_REALTIME phc offset         1 s2 freq   +7287 delay   1115
+Sep 17 12:03:24 three phc2sys[1019610]: [172050.179] CLOCK_REALTIME phc offset         1 s2 freq   +7287 delay   1120
+Sep 17 12:03:24 three ptp4l[1026490]: [172050.258] rms    3 max    8 freq  +1162 +/-   6 delay   339 +/-   1
+Sep 17 12:03:24 three phc2sys[1019610]: [172050.304] CLOCK_REALTIME phc offset        -6 s2 freq   +7280 delay   1109
+Sep 17 12:03:24 three phc2sys[1019610]: [172050.430] CLOCK_REALTIME phc offset         0 s2 freq   +7285 delay   1120
+Sep 17 12:03:24 three phc2sys[1019610]: [172050.555] CLOCK_REALTIME phc offset         1 s2 freq   +7286 delay   1117
+Sep 17 12:03:25 three phc2sys[1019610]: [172050.680] CLOCK_REALTIME phc offset         2 s2 freq   +7287 delay   1113
+Sep 17 12:03:25 three phc2sys[1019610]: [172050.805] CLOCK_REALTIME phc offset        -6 s2 freq   +7279 delay   1111
+Sep 17 12:03:25 three phc2sys[1019610]: [172050.930] CLOCK_REALTIME phc offset         0 s2 freq   +7284 delay   1113
+Sep 17 12:03:25 three phc2sys[1019610]: [172051.055] CLOCK_REALTIME phc offset        -2 s2 freq   +7282 delay   1104
+Sep 17 12:03:25 three phc2sys[1019610]: [172051.180] CLOCK_REALTIME phc offset         0 s2 freq   +7283 delay   1117
+Sep 17 12:03:25 three ptp4l[1026490]: [172051.268] rms    4 max    9 freq  +1160 +/-   7 delay   339 +/-   1
+Sep 17 12:03:25 three phc2sys[1019610]: [172051.305] CLOCK_REALTIME phc offset        -4 s2 freq   +7279 delay   1115
+Sep 17 12:03:25 three phc2sys[1019610]: [172051.430] CLOCK_REALTIME phc offset         3 s2 freq   +7285 delay   1120

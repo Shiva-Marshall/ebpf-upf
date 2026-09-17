@@ -1,0 +1,10 @@
+filename:       /home/three/upf-work/gtp5g/gtp5g.ko
+alias:          net-pf-16-proto-16-family-gtp5g
+alias:          rtnl-link-gtp5g
+version:        0.10.2
+description:    Interface for 5G GTP encapsulated traffic
+author:         Muthuraman <muthuramane.cs03g@g2.nctu.edu.tw>
+author:         Yao-Wen Chang <yaowenowo@gmail.com>
+license:        GPL
+srcversion:     BCD9F1FA0897672E4B72DF3
+depends:        udp_tunnel
