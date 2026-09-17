@@ -241,6 +241,30 @@ struct {
     __uint(max_entries, MAX_QERS);
 } qer_state SEC(".maps");
 
+/* Shared, spin-lock-protected counterpart to qer_state, used only when the
+ * datapath is built with -DUPF_QER_SHARED_LOCK. One global bucket per QER
+ * instead of one per CPU: every CPU contends for the same bpf_spin_lock to
+ * refill and drain it. This is the alternative the paper's Discussion names
+ * but did not previously measure -- both variants exist so the accuracy vs
+ * contention trade-off can be quantified on the same hardware rather than
+ * asserted. A spin-locked value may not be read via a plain map dump, so the
+ * lock must be the first field and the state is only ever touched inside
+ * bpf_spin_lock()/bpf_spin_unlock(). */
+#ifdef UPF_QER_SHARED_LOCK
+struct qer_bucket_locked {
+    struct bpf_spin_lock lock;
+    __u64 tokens_bytes;
+    __u64 last_ns;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key,   __u32);
+    __type(value, struct qer_bucket_locked);
+    __uint(max_entries, MAX_QERS);
+} qer_state_shared SEC(".maps");
+#endif
+
 struct {
     /* HASH, not ARRAY: pdr_id values in this codebase use large sparse
      * offsets (e.g. 0x2000, 0x20000 for the rule-update benchmark), which

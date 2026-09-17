@@ -39,8 +39,63 @@
 
 /* Token-bucket admission check for QER `qer_id` against `pkt_len` bytes.
  * Returns 1 (admit) or 0 (exceeds configured MBR, caller should drop).
- * One bucket instance per CPU -- see the qer_bucket_state comment in
- * upf_maps.h for the accuracy/contention trade-off this implies. */
+ * Two implementations are provided and selected at build time: a per-CPU
+ * bucket (default) and a shared spin-locked bucket
+ * (-DUPF_QER_SHARED_LOCK). See the qer_bucket_state comment in upf_maps.h
+ * for the accuracy/contention trade-off that motivates measuring both. */
+#ifdef UPF_QER_SHARED_LOCK
+/* Shared-bucket variant: one global token bucket per QER, guarded by a
+ * bpf_spin_lock, so an MBR is enforced in aggregate across all CPUs rather
+ * than per-CPU. Same arithmetic as the per-CPU path below; the only
+ * difference is where the state lives and that access is serialised. */
+static __always_inline int upf_qer_admit(__u32 qer_id, __u32 pkt_len)
+{
+    struct qer_val *qv = bpf_map_lookup_elem(&qer_table, &qer_id);
+    if (!qv || qv->mbr_ul_bps == 0)
+        return 1;
+
+    struct qer_bucket_locked *st = bpf_map_lookup_elem(&qer_state_shared, &qer_id);
+    if (!st)
+        return 1;
+
+    __u64 now = bpf_ktime_get_ns();
+    int admit;
+
+    bpf_spin_lock(&st->lock);
+    if (st->last_ns == 0) {
+        st->tokens_bytes = qv->burst_bytes;
+        st->last_ns = now;
+    } else {
+        /* `now` is sampled before the lock is taken, because the verifier
+         * forbids calling helpers inside a spin-lock critical section. Under
+         * contention that means CPUs can acquire the lock out of timestamp
+         * order: a CPU that sampled an earlier `now` may enter after one that
+         * sampled a later one, leaving now < last_ns. On __u64 that subtraction
+         * wraps to an enormous value, which the clamp below then turns into a
+         * full-bucket refill -- measured as a ~3x MBR overshoot before this
+         * guard was added, i.e. the shared bucket silently lost the very rate
+         * enforcement it exists to provide. Treat out-of-order arrivals as
+         * contributing no elapsed time instead. */
+        __u64 elapsed = (now > st->last_ns) ? (now - st->last_ns) : 0;
+        if (elapsed > 1000000000ULL)
+            elapsed = 1000000000ULL;
+        __u64 refill = (elapsed * qv->mbr_ul_bps) / 8000000000ULL;
+        st->tokens_bytes += refill;
+        if (st->tokens_bytes > qv->burst_bytes)
+            st->tokens_bytes = qv->burst_bytes;
+        st->last_ns = now;
+    }
+    if (st->tokens_bytes >= pkt_len) {
+        st->tokens_bytes -= pkt_len;
+        admit = 1;
+    } else {
+        admit = 0;
+    }
+    bpf_spin_unlock(&st->lock);
+
+    return admit;
+}
+#else
 static __always_inline int upf_qer_admit(__u32 qer_id, __u32 pkt_len)
 {
     struct qer_val *qv = bpf_map_lookup_elem(&qer_table, &qer_id);
@@ -76,6 +131,7 @@ static __always_inline int upf_qer_admit(__u32 qer_id, __u32 pkt_len)
     }
     return 0;
 }
+#endif /* UPF_QER_SHARED_LOCK */
 
 /* Usage accounting for URR `urr_id`. Per-CPU hash: each CPU maintains its
  * own counters for a given URR id, aggregated by the PFCP agent at

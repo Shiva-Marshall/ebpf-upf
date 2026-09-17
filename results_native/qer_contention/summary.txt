@@ -1,0 +1,28 @@
+QER token-bucket contention: per-CPU vs shared spin-locked bucket
+Native-XDP testbed, 32 flows sharing one QER, MBR 2 Mbps, burst 64 KiB,
+5 s per run, median of 3 repeats. Concurrency controlled via ethtool -L combined.
+
+variant  queues  CPUs  overshoot   ns/pkt
+------------------------------------------
+percpu        1     1       0.96    130.1
+percpu        2     2       1.98    131.8
+percpu        4     4       4.06    133.5
+percpu        8    10       8.32    138.8
+percpu       16    15      15.29    161.0
+shared        1     1       0.95    146.1
+shared        2     2       0.92    155.7
+shared        4     4       0.90    162.8
+shared        8     9       0.85    201.4
+shared       16    16       0.79    193.7
+
+overshoot = achieved admitted rate / configured MBR (1.0 = exact enforcement).
+Admitted bytes are read from the URR counters, which accumulate exactly the
+pkt_len the token bucket meters, so the figure is the metered quantity itself.
+ns/pkt is the kernel per-programme run_time_ns/run_cnt for the TC ingress
+programme (kernel.bpf_stats_enabled=1); its accounting overhead applies
+equally to both variants.
+
+raw.txt is an earlier sweep that varied flow count instead of queue count;
+it is retained because it is what exposed the timestamp-ordering bug in the
+shared bucket (see summary.md), but its CPU counts were uncontrolled and
+raw_queues.txt supersedes it as the reported result.
